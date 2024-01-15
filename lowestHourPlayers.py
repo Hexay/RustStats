@@ -127,8 +127,8 @@ class Player(object):
         pass
 
 if __name__ == "__main__":
-    bearer_token = "" # UPLOAD YOUR TOKEN HERE
-    server_id = "16772881"
+    bearer_token = "" # UPLOAD YOUR BM TOKEN HERE
+    server_id = "16772881" # CHANGE TO THE SERVER (bm id)
     api = Api(bearer_token, server_id)
     players = api.find_online_players()
     print(len(players))
