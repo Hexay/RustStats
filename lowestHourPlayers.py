@@ -2,6 +2,8 @@ import requests
 import json
 from datetime import datetime, timezone
 import time
+import os
+import sys
 
 class Utils(object):
     def days_difference(date_str):
@@ -13,7 +15,7 @@ class Utils(object):
 
 class FileHandler(object):
     @staticmethod
-    def read_json(fileDir, data):
+    def read_json(fileDir):
         with open(fileDir, 'r') as f:
             data = f.read()
         return json.loads(data)
@@ -22,6 +24,22 @@ class FileHandler(object):
     def write_json(fileDir, data):
         with open(fileDir, 'w') as f:
             f.write(json.dumps(data))
+
+    @staticmethod
+    def list_dir(dir):
+        files = os.listdir(dir)
+        return files
+
+    @staticmethod
+    def read_file(fileDir):
+        with open(fileDir, 'r') as f:
+            data = f.read()
+        return data
+
+    @staticmethod
+    def write_file(fileDir, data):
+        with open(fileDir, "w", encoding="utf-8") as f:
+            f.write(data)
 
 class Api(object):
     def __init__(self, bearer, serverID):
@@ -43,13 +61,11 @@ class Api(object):
             print(f"Error: {e}")
             return None
 
-    def get_server_list(self, size):
+    def get_server_list(self):
         params = {
-            'filter[servers]': self.__serverID,
-            'filter[online]': 'true',
-            'page[size]': size,
+            'include': 'player',
         }
-        return self.get_data("https://api.battlemetrics.com/players", self.__headers, params=params)
+        return self.get_data(f"https://api.battlemetrics.com/servers/{self.__serverID}", self.__headers, params=params)
 
     def get_player_count(self):
         return self.get_data(url=f"https://api.battlemetrics.com/servers/{self.__serverID}")["data"]["attributes"]["players"]
@@ -58,28 +74,14 @@ class Api(object):
         self.__serverID = newID
 
     def find_online_players(self):
-        playerCount = self.get_player_count()
         self.__players = []
-        if playerCount > 100:
-            print(playerCount)
-            numReq = (playerCount // 100) + 1
-            size = playerCount // numReq
-            data = self.get_server_list(size)
-            FileHandler.write_json("bm.txt", data)
-            self.add_to_players(data)
-            next = self.find_next(data)
-            for i in range(numReq):
-                newData = self.get_data(next)
-                next = self.find_next(newData)
-                self.add_to_players(newData)
-            print(len(self.__players))
-        else:
-            data = self.get_server_list(playerCount)
-            self.add_to_players(data)
+        data = self.get_server_list()
+        FileHandler.write_json("bm.txt", data)
+        self.add_to_players(data)
         return self.__players
 
     def add_to_players(self, data):
-        for playerData in data["data"]:
+        for playerData in data["included"]:
             newPlayer = Player(playerData, self.__bearer, self.__serverID)
             self.__players.append(newPlayer)
 
@@ -98,6 +100,8 @@ class Player(object):
         self.playerData = None
         self.serverID = serverID
         self.totalServers = 0
+        self.clan = "[" in self.name
+        #print(self.id, self.name,self.AccountAge)
 
     def getPlayerData(self):
         headers = {
@@ -126,15 +130,49 @@ class Player(object):
     def findFirstJoin(self):
         pass
 
+class config(object):
+    def __init__(self):
+        self.data = self.exists()
+        self.bearer = self.data["bearer"]
+        self.serverID = self.data["serverID"]
+        self.minAccountAge = self.data["minAccountAge"]
+        self.totalServers = self.data["totalServers"]
+        self.hours = self.data["hours"]
+        self.firstJoinAge = self.data["firstJoinAge"]
+        self.WriteOutputLinkRCON = self.data["WriteOutputLinkRCON"] == "True"
+
+
+    def exists(self):
+        if "config.json" in FileHandler.list_dir(os.getcwd()): # Lists files in current directory
+            return FileHandler.read_json("config.json")
+        else:
+            self.no_config()
+
+    def no_config(self):
+        print("Copy config file from github!");
+        FileHandler.write_json("config.json", "")
+        time.sleep(3);
+        sys.exit()
+
+    def get_url(self, player):
+        if self.WriteOutputLinkRCON:
+            url = "https://www.battlemetrics.com/rcon/players/" + player.id
+        else:
+            url = "https://www.battlemetrics.com/players/" + player.id
+        return url
+
 if __name__ == "__main__":
-    bearer_token = "" # UPLOAD YOUR BM TOKEN HERE
-    server_id = "16772881" # CHANGE TO THE SERVER (bm id)
+    config = config()
+    bearer_token = config.bearer
+    server_id = config.serverID
     api = Api(bearer_token, server_id)
     players = api.find_online_players()
     print(len(players))
     count = 0
     explored = []
+    s = ""
     for player in players:
+        reason = ""
         if player.id not in explored:
             explored.append(player.id)
         else:
@@ -145,16 +183,31 @@ if __name__ == "__main__":
         player.findHours()
         #priority goes accountAge, hours, firstJoinAge, serverHours
         #print(player.id, player.hours, player.serverHours, player.AccountAge, player.firstJoinAge)
-        if player.AccountAge > 120:
-            continue
-        if player.AccountAge < 15:
-            print("Low age", player.id)
-        elif player.totalServers < 5:
+        x = True
+        if player.totalServers < config.totalServers:
+            reason = "Low Servers"
             print("Super lower severs", player.id)
-        elif player.hours < 50:
+        elif player.AccountAge < config.minAccountAge:
+            reason = "New acc"
+            print("Low age", player.id)
+        elif player.hours < config.hours:
+            reason = "Low hours"
             print("Low hours", player.id)
-        elif player.firstJoinAge < 1:
+        elif player.firstJoinAge < config.firstJoinAge:
+            reason = "Just joined server"
             print("New account", player.id)
+        else:
+            x = False
+
+        if x:
+            url = config.get_url(player)
+            a = player.name + " - " + url + "\n"
+            a += f"{reason} Servers:{str(player.totalServers)} Age:{str(player.AccountAge)} Hours:{str(round(player.hours,2))} FirstJoinServ:{str(player.firstJoinAge)}"+"\n"+"\n"
+            s += a
+    FileHandler.write_file("output.txt", s)
+
+
+
 
     print(len(explored))
 
