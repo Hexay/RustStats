@@ -1,0 +1,9 @@
+{
+  "bearer": "",
+  "serverID": "",
+  "minAccountAge": 15,
+  "totalServers": 5,
+  "hours": 50,
+  "firstJoinAge": 1,
+  "WriteOutputLinkRCON": "False"
+}
